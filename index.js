@@ -7,35 +7,64 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.json({ limit: "100mb" })); // supports large batches
 
-// store last received JSON in memory
-let lastInventory = null;
+// In-memory storage (reset when server restarts)
+let lastInventory = [];
 
-// POST endpoint for uploads
+// ✅ Upload inventory chunks
 app.post("/upload-inventory", (req, res) => {
-  console.log("✅ Received inventory JSON:");
-  console.log(JSON.stringify(req.body, null, 2));
-  lastInventory = req.body; // save it
+  if (!Array.isArray(req.body)) {
+    return res.status(400).json({ error: "Expected JSON array of products" });
+  }
+
+  // Append incoming batch instead of overwriting previous ones
+  lastInventory.push(...req.body);
+
+  console.log(
+    `✅ Received batch: ${req.body.length} items | Total stored: ${lastInventory.length}`
+  );
+
   res.json({
-    status: "success",
-    message: "JSON received successfully",
-    count: Array.isArray(req.body) ? req.body.length : 1,
+    message: "Batch received successfully",
+    batchSize: req.body.length,
+    totalStored: lastInventory.length,
   });
 });
 
-// GET endpoint to show last uploaded data
-app.get("/", (req, res) => {
-  if (lastInventory) {
-    // Pretty-print the last received JSON
-    res.setHeader("Content-Type", "application/json");
-    res.send(JSON.stringify(lastInventory, null, 2));
-  } else {
-    res.send("📦 Inventory test server is running! (no data received yet)");
+// ✅ Download all stored inventory
+app.get("/download-inventory", (req, res) => {
+  if (!lastInventory.length) {
+    return res.status(404).json({ error: "No inventory data stored yet" });
   }
+
+  console.log(`📤 Sending ${lastInventory.length} items to client`);
+  res.json(lastInventory);
 });
 
-// Start server
+// ✅ Optional: clear all stored inventory (for testing)
+app.delete("/clear-inventory", (req, res) => {
+  const count = lastInventory.length;
+  lastInventory = [];
+  console.log(`🧹 Cleared ${count} stored items`);
+  res.json({ message: `Cleared ${count} items` });
+});
+
+// ✅ Health check / info endpoint
+app.get("/", (req, res) => {
+  res.send(
+    "📦 Inventory test server is running!<br>Endpoints:<br>" +
+      "<ul>" +
+      "<li>POST /upload-inventory — receive data</li>" +
+      "<li>GET /download-inventory — return last uploaded data</li>" +
+      "<li>DELETE /clear-inventory — clear stored data</li>" +
+      "</ul>"
+  );
+});
+
+// Start server (Vercel ignores this locally but runs it in dev)
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+export default app; // required for Vercel deployments
